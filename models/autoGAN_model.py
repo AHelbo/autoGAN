@@ -7,7 +7,7 @@ from models.metrics.metrics import torch_psnr
 
 
 class autoGANmodel(BaseModel):
-    """ This class implements the pix2pix model, for learning a mapping from input images to output images given paired data.
+    """ This class implements the autoGAN model, for learning a mapping from input images to output images given paired data.
 
     The model training requires '--dataset_mode aligned' dataset.
     By default, it uses a '--netG unet256' U-Net generator,
@@ -73,6 +73,7 @@ class autoGANmodel(BaseModel):
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
 
+        self.optimal_D_loss = 0.5
         self.G_losses = []
         self.D_losses = []
         self.update_freq = 0
@@ -113,10 +114,12 @@ class autoGANmodel(BaseModel):
         self.loss_D_real = self.criterionGAN(pred_real, True)
         # combine loss and calculate gradients
         self.loss_D = (self.loss_D_fake + self.loss_D_real) * 0.5
-        self.loss_D.backward()
 
+        self.loss_D.backward()
+        
         # TODO make this more elegant, ideally in the base class
-        self.D_losses.append(self.loss_D)
+        self.D_losses.append(self.loss_D.item())
+
 
     def backward_G(self):
         """Calculate GAN and L1 loss for the generator"""
@@ -128,24 +131,29 @@ class autoGANmodel(BaseModel):
         self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B) 
         # combine loss and calculate gradients
         self.loss_G = (self.loss_G_GAN * (self.opt.lambda_GAN/100)) + (self.loss_G_L1 * self.opt.lambda_L1)
+        
+        # TODO make this more elegant, ideally in the base class
+        # self.G_losses.append(self.loss_G.item())
+        
         self.loss_G.backward()
 
-        # TODO make this more elegant, ideally in the base class
-        self.G_losses.append(self.loss_G)
 
 
     def update_learning_frequency(self):
         
         avg = sum(self.D_losses) / len(self.D_losses)
-
-        if (avg < 0.5):
-            self.update_freq += 1
-        else:
-            self.update_freq -= 1
-
         self.D_losses = []
 
-        print(f"{avg = } {self.update_freq = }")
+        # To penalize a very small (ususally near 0.0) or very large (usually near 1.0) loss, the correction is 
+        # linearly proportional to the deviation from the optimal D loss (self.optimal_D_loss)
+        corection = 1 + int(abs(self.optimal_D_loss-avg)*10.0)
+
+        if (avg > self.optimal_D_loss):
+            self.update_freq -= corection
+        else:
+            self.update_freq += corection
+
+        print(f"{avg = }\n{corection =}\n{self.update_freq = } ")
 
 
     def calculate_val_loss(self):
@@ -191,8 +199,10 @@ class autoGANmodel(BaseModel):
 
         for _ in range(abs(self.update_freq)):
             if (self.update_freq > 0):
+                self.forward()
                 self.optimize_G_parameters()
             else:
+                self.forward()
                 self.optimize_D_parameters()
 
 

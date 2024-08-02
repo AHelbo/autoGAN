@@ -5,7 +5,7 @@
           checkpoints_dir: ./checkpoints                 
            continue_train: False                         
                 crop_size: 256                           
-                 dataroot: ./datasets/mr2ct              	[default: None]
+                 dataroot: ./datasets/mr2ct_small        	[default: None]
              dataset_mode: aligned                       
                 direction: AtoB                          
               display_env: main                          
